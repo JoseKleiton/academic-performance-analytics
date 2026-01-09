@@ -205,3 +205,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local data and artifacts
+data/
+results/
+
+# Virtual environments
+.venv_linux/
+.venv/
+venv/
+env/
