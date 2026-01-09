@@ -3,76 +3,102 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
 
-# Set visual standards for scientific reporting
-sns.set_theme(style="whitegrid")
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-def plot_subject_status(df: pd.DataFrame, output_path: str = "results/partial_status.png"):
+def plot_status(df: pd.DataFrame, col: str, title: str, path: str):
     """
-    Visualizes student status distribution across subjects.
-    Provides a clear diagnostic for interdisciplinary management.
+    Plots status distribution with absolute counts, percentages, and semantic colors.
     """
     try:
         plt.figure(figsize=(12, 7))
         
-        # Consistent color mapping for pedagogical outcomes
-        color_map = {
-            'Aprovado': '#2ca02c',      # Success
-            'Exame Final': '#ff7f0e',   # Warning
-            'Retido (Nota)': '#d62728'  # Critical
+        status_colors = {
+            'Aprovado': '#2ca02c',      # Green
+            'Exame Final': '#ff7f0e',   # Orange
+            'Retido (Nota)': '#d62728'  # Red
         }
         
-        ax = sns.countplot(
-            data=df,
-            x='Subject',
-            hue='Res. Parcial',
-            palette=color_map
-        )
+        ax = sns.countplot(data=df, x='Subject', hue=col, palette=status_colors)
         
-        plt.title('Academic Status Distribution per Subject', fontsize=16, weight='bold')
-        plt.xlabel('Subject Area', fontsize=12)
+        plt.title(title, weight='bold', fontsize=16)
+        plt.xlabel('Subject', fontsize=12)
         plt.ylabel('Student Count', fontsize=12)
-        
-        # Statistical annotation: Adding counts and percentages to bars
-        total_records = len(df['Nome'].unique())
+        plt.legend(title=col, bbox_to_anchor=(1.05, 1), loc='upper left')
+
+        # Annotations for Status Plot
+        total_students = len(df['Nome'].unique())
         for p in ax.patches:
             height = p.get_height()
             if height > 0:
-                percentage = 100 * height / total_records
-                ax.text(p.get_x() + p.get_width()/2., height + 0.1, 
-                        f'{height:.0f}\n({percentage:.1f}%)', 
-                        ha="center", fontsize=9, weight='bold')
+                percentage = 100 * height / total_students
+                ax.text(
+                    p.get_x() + p.get_width()/2., 
+                    height + 0.1, 
+                    f'{height:.0f}\n({percentage:.1f}%)', 
+                    ha="center", fontsize=9, weight='bold'
+                )
 
         plt.tight_layout()
-        plt.savefig(output_path)
+        plt.savefig(path)
         plt.close()
-        logging.info(f"Analysis plot successfully exported to {output_path}")
-        
+        logging.info(f"Successfully saved annotated status plot: {path}")
     except Exception as e:
-        logging.error(f"Visualization error (Status Plot): {e}")
+        logging.error(f"Error generating status plot: {e}")
 
-def plot_grade_distribution(df: pd.DataFrame, output_path: str = "results/grade_distribution.png"):
+def plot_distributions(df: pd.DataFrame, col: str, title: str, path: str, color: str):
     """
-    Generates density histograms to analyze the performance spread.
-    Essential for monitoring teaching quality and learning consistency.
+    Plots histograms for grade distributions with count and percentage labels.
+    Provides precise frequency analysis for pedagogical assessment.
     """
     try:
         subjects = df['Subject'].unique()
-        fig, axes = plt.subplots(1, len(subjects), figsize=(20, 6), sharey=True)
-        fig.suptitle('Interdisciplinary Grade Distribution Analysis', fontsize=18, weight='bold')
+        if len(subjects) == 0:
+            return
 
-        for i, subject in enumerate(subjects):
-            subset = df[df['Subject'] == subject]
-            sns.histplot(data=subset, x='Média Final', ax=axes[i], 
-                         binwidth=1, binrange=(0, 11), kde=True, color='skyblue')
-            axes[i].set_title(subject, fontsize=14, weight='bold')
-            axes[i].set_xticks(range(11))
-            axes[i].set_xlabel('Final Grade')
-
-        plt.tight_layout()
-        plt.savefig(output_path)
-        plt.close()
-        logging.info(f"Grade distribution analysis exported to {output_path}")
+        fig, axes = plt.subplots(1, len(subjects), figsize=(20, 7), sharey=True)
+        fig.suptitle(title, weight='bold', fontsize=18)
         
+        if len(subjects) == 1:
+            axes = [axes]
+
+        for i, s in enumerate(subjects):
+            subset = df[df['Subject'] == s]
+            total_in_subset = len(subset)
+            
+            # Generating the histogram
+            ax_sub = sns.histplot(
+                subset[col], 
+                ax=axes[i], 
+                binwidth=1, 
+                binrange=(0,11), 
+                kde=True, 
+                color=color
+            )
+            
+            axes[i].set_title(f"{s}\n(Total: {total_in_subset})", weight='semibold', fontsize=14)
+            axes[i].set_xticks(range(11))
+            axes[i].set_xlabel('Grade')
+            
+            # Annotations for Histogram Bins
+            # Each 'p' is a bar representing a grade interval
+            for p in axes[i].patches:
+                height = p.get_height()
+                if height > 0:
+                    percentage = 100 * height / total_in_subset
+                    axes[i].text(
+                        p.get_x() + p.get_width()/2., 
+                        height + 0.05, 
+                        f'{height:.0f}\n({percentage:.1f}%)', 
+                        ha="center", 
+                        va="bottom",
+                        fontsize=8, 
+                        weight='bold',
+                        color='black'
+                    )
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.savefig(path)
+        plt.close()
+        logging.info(f"Successfully saved annotated distribution: {path}")
     except Exception as e:
-        logging.error(f"Visualization error (Distribution Plot): {e}")
+        logging.error(f"Error generating distribution plot: {e}")

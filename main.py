@@ -1,66 +1,110 @@
 import os
 import logging
 import pandas as pd
+from dotenv import load_dotenv
+
+# Importing custom modules from the src package
 from src.loader import fetch_data, load_subjects
-from src.processor import process_raw_data, generate_performance_ranking
-from src.visualizer import plot_subject_status, plot_grade_distribution
+from src.processor import process_raw_data, generate_final_ranking, anonymize_students
+from src.visualizer import plot_status, plot_distributions
 
-# 1. Configuration Constants (Separation of concerns)
-SHEET_ID = "1_KfhUlmBFatxUmjTmeszD4OJ-VwBQMQnGQjioMacNUk"
-BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=xlsx"
+# 1. Environment and Logging Configuration
+load_dotenv()
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(levelname)s: %(message)s'
+)
 
-# Mapping sheets to their respective international subject names
+# Constants and Configuration from .env
+URL = os.getenv("GOOGLE_SHEET_URL")
+# Privacy Toggle: Default is False (show real names) if not specified in .env
+ANONYMIZE = os.getenv("ANONYMIZE_DATA", "False").lower() == "true"
+
 SUBJECT_MAPPING = {
     'Informática(B)': 'Informatics',
     'Lógica(B)': 'Logic',
     'Manutenção(B)': 'Maintenance'
 }
 
-# 2. Setup Logging for traceability
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-
 def main():
     """
-    Main entry point for the Academic Performance Analytics tool.
-    Coordinates the ETL pipeline, statistical analysis, and visualization.
+    Main orchestrator for the Academic Performance Analytics tool.
+    Coordinates the ETL pipeline with conditional privacy and data source fallback.
     """
-    logging.info("Starting Academic Performance Analysis pipeline...")
-
-    # Step 0: Environment Setup (Ensuring required directories exist)
+    logging.info("Initializing Academic Performance Analysis pipeline...")
     os.makedirs("results", exist_ok=True)
-    os.makedirs("data", exist_ok=True)
+
+    # 2. Data Source Selection (Remote vs Local Fallback)
+    if URL:
+        logging.info("Data Source: Remote Google Sheets (Production Mode)")
+        try:
+            data_source = fetch_data(URL)
+        except Exception as e:
+            logging.error(f"Failed to fetch remote data: {e}")
+            return
+    else:
+        local_mock_path = "data/sample_data.xlsx"
+        if os.path.exists(local_mock_path):
+            logging.info(f"Data Source: Local Mock Data (Reproducibility Mode) -> {local_mock_path}")
+            data_source = pd.ExcelFile(local_mock_path)
+        else:
+            logging.error("No data source found. Provide GOOGLE_SHEET_URL in .env or create data/sample_data.xlsx")
+            return
 
     try:
-        # Step 1: Data Ingestion
-        # Connects to the remote source and loads raw data
-        logging.info("Fetching data from remote source...")
-        excel_file = fetch_data(BASE_URL)
-        raw_df = load_subjects(excel_file, SUBJECT_MAPPING)
+        # 3. Ingestion and Technical Cleaning
+        logging.info("Consolidating subject sheets and cleaning raw data...")
+        raw_df = load_subjects(data_source, SUBJECT_MAPPING)
+        processed_data = process_raw_data(raw_df)
 
-        # Step 2: Data Processing & Cleaning
-        # Ensures scientific rigor by handling missing values and data types
-        logging.info("Cleaning raw data and processing metrics...")
-        cleaned_df = process_raw_data(raw_df)
-        
-        # Step 3: Visualization & Diagnostic Reporting
-        # Generates high-impact charts for pedagogical support
+        # 4. Conditional Privacy Layer (The Toggle)
+        # Based on ANONYMIZE_DATA in your .env file
+        if ANONYMIZE:
+            logging.info("Privacy Mode: ON. Applying data anonymization for public reporting...")
+            final_data = anonymize_students(processed_data)
+        else:
+            logging.info("Privacy Mode: OFF. Using real student names for pedagogical diagnostic...")
+            final_data = processed_data.copy()
+
+        # 5. Scientific Visualization (using the chosen data mode)
         logging.info("Generating visual diagnostic reports...")
-        plot_subject_status(cleaned_df, output_path="results/status_distribution.png")
-        plot_grade_distribution(cleaned_df, output_path="results/grade_distribution.png")
+        
+        # 5.1 Partial Status Distribution
+        plot_status(final_data, 'Res. Parcial', 'Partial Status Diagnostic', 'results/1_partial_status.png')
+        
+        # 5.2 Final Grade Distribution Histograms
+        plot_distributions(final_data, 'Média Final', 'Final Grade Distribution', 'results/2_grades_hist.png', 'skyblue')
+        
+        # 5.3 Final Status Distribution (Post-Recovery)
+        plot_status(final_data, 'Res. Final', 'Final Outcome Status', 'results/3_final_status.png')
+        
+        # 5.4 Recovery Performance Analysis
+        recovery_subset = final_data[final_data['Res. Parcial'] == 'Exame Final']
+        if not recovery_subset.empty:
+            plot_distributions(recovery_subset, 'Exame Final', 'Recovery Exam Performance', 'results/4_recovery_hist.png', 'salmon')
 
-        # Step 4: Statistical Ranking & Export
-        # Consolidates student performance for final assessment
-        logging.info("Calculating final performance ranking...")
-        ranking_results = generate_performance_ranking(cleaned_df)
+        # 6. Statistical Consolidation and Performance Ranking
+        logging.info("Calculating final performance ranking and qualitative profiles...")
+        final_ranking = generate_final_ranking(final_data)
         
-        # Exporting clean data for reproducibility
-        ranking_results.to_csv("results/academic_ranking.csv", index=False)
+        # Exporting the consolidated report
+        final_ranking.to_csv("results/final_ranking.csv", index=False)
         
-        logging.info("Pipeline executed successfully. Reports are available in the 'results/' folder.")
+        # Console output Summary
+        print("\n" + "="*80)
+        print("PIPELINE EXECUTION SUMMARY")
+        print("="*80)
+        print(f"Privacy Mode: {'ENABLED (Anonymized)' if ANONYMIZE else 'DISABLED (Real Names)'}")
+        print(f"Total Students Processed: {len(final_ranking)}")
+        print("-" * 80)
+        # Print top 10 (sorted by lowest score as requested)
+        print(final_ranking[['Aluno', 'Pont', 'Media', 'Perfil']].head(10).to_string(index=False))
+        print("="*80)
+        
+        logging.info("Pipeline executed successfully. Files saved in 'results/'.")
 
     except Exception as e:
-        # Critical error management to prevent silent failures
-        logging.error(f"Critical failure during execution: {e}")
+        logging.error(f"Critical pipeline failure: {e}")
 
 if __name__ == "__main__":
     main()
